@@ -46,8 +46,10 @@ bool checkAMSStatus(JsonDocument& doc,bool& status);
 
 void setup() 
 {
-  system_init();
   Serial.begin(115200);
+  Serial.println("system init\n");
+  system_init();
+  Serial.println("system init complete\n");
 }
 
 void loop() 
@@ -69,6 +71,7 @@ void system_init()
   }
   pinMode(Buffer_Detection[0],INPUT_PULLDOWN);
   pinMode(Buffer_Detection[1],INPUT_PULLDOWN);
+  Serial.println("GPIO init complete\n");
 
   //init filament
   if(Filament_Num > 4)
@@ -85,6 +88,7 @@ void system_init()
     while(digitalRead(Filament_detection[i])) {};
     digitalWrite(Motor_Bacword[i],0);
   }
+  Serial.println("filament init complete\n");
 
   //complete string
   Listen_Topic = std::string("device/") + BambuLab_Serial + Listen_Topic;
@@ -102,7 +106,10 @@ void system_init()
   mqttClient.setClient(espClient);
   mqttClient.setServer(BambuLab_IP,BambuLab_Port);
   mqttClient.setCallback(mqtt_callback);
-  mqttClient.connect(ClientID,BambuLab_Username,BambuLab_Password);
+  if(mqttClient.connect(ClientID,BambuLab_Username,BambuLab_Password))
+    Serial.println("bambu connect success\n");
+  else
+    Serial.println("bambu connect fail\n");
   mqttClient.subscribe(Listen_Topic.c_str());
 }
 
@@ -127,20 +134,25 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length)
   deserializeJson(jsonRecv,(char*)payload,length);
 
   if(checkNextFilament(jsonRecv,FilaMent_Next))
+  {
     ams_require_received = 1;
-
+    Serial.println("filament change require received\n");
+  }
   if(workstate == 0)
   {
     std::string gcode_state = jsonRecv["print"]["gcode_state"];
     if (checkPauseFlag(jsonRecv))
     {
+      Serial.println("printer pause command received\n");
       if(checkNextFilament(jsonRecv,FilaMent_Next) || ams_require_received)
       {
         ams_require_received = 0;
+        Serial.println("filament change start\n");
         // start change filament
         if(FilaMent_Next == Filament_Now)
         {
           // next filament is the same with the current filament,there is no need to change filament
+          Serial.println("next filament is the same with the current filament,there is no need to change filament\n");
           mqttClient.publish(Public_Topic.c_str(),bambu_resume.c_str(),bambu_resume.size());
           return;
         }
@@ -151,10 +163,8 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length)
           Buffer_Func_Flag = 0;
         }
         // unload the filament
+        Serial.println("start filament unload\n");
         mqttClient.publish(Public_Topic.c_str(),bambu_unload.c_str(),bambu_unload.size());
-        // wait for printer cut off filament,then unload
-        delay(15000);
-        digitalWrite(Motor_Bacword[Filament_Now],1);
         workstate += 1;
       }
     }
@@ -166,11 +176,15 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length)
     {
       if(0 == switch_status)
       {
+        Serial.println("filament unload start\n");
+        digitalWrite(Motor_Bacword[Filament_Now],1);
         // after the filament is out of printer
         while(digitalRead(Filament_detection[Filament_Now]) == 1) {};// wait until filament is back into AMS
+        Serial.println("filament unload complete\n");
         digitalWrite(Motor_Bacword[Filament_Now],0);
         Filament_Now = -1;
         // send new filament to printer
+        Serial.println("filament load start\n");
         digitalWrite(Motor_Forward[FilaMent_Next],1);
         workstate += 1;
       }
@@ -185,8 +199,10 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length)
       {
         // new filament is in posion and ready to load
         digitalWrite(Motor_Forward[FilaMent_Next],0);
+        Serial.println("filament load complete\n");
         mqttClient.publish(Public_Topic.c_str(),bambu_load.c_str(),bambu_load.size());
-        delay(20000);
+        delay(10000);
+        Serial.println("filament load command sent\n");
         mqttClient.publish(Public_Topic.c_str(),bambu_done.c_str(),bambu_done.size());
         workstate += 1;
       }
@@ -200,6 +216,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length)
       if(AMSStatus)
       {
         // filament wash complete, continue print
+        Serial.println("AMS function complete\n");
         mqttClient.publish(Public_Topic.c_str(),bambu_resume.c_str(),bambu_resume.size());
         workstate = 0;
       }
