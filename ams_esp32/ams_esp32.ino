@@ -1,109 +1,110 @@
+#include "defines.h"
 #include <WiFi.h>
-#include <PubSubClient.h>
+#include <AsyncMQTT_ESP32.h>
 #include <ArduinoJson.h>
-#include <string.h>
-#include <WiFiClientSecure.h>
 
-//*********************User Settings**********************
-const char* WIFI_SSID = "robomaster109";
-const char* WIFI_PASSWORD = "robo123456";
-const char* BambuLab_IP = "mqtts://192.168.0.100";
-const char* BambuLab_Password = "24282340";
-std::string BambuLab_Serial = "01S00C351400077";
-const int Motor_Forward[4] = {0,2,10,7};
-const int Motor_Bacword[4] = {1,3,6,11};
-const int Filament_detection[4] = {5,4,8,9};
-const int Buffer_Detection[2] = {12,13};
-const float Filament_K_Val[4] = {0.030,0.030,0.030,0.030};
-int Filament_Num = 2;
-//********************************************************
+extern "C"
+{
+#include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
+}
 
-//*******************Global Parameters********************
-WiFiClientSecure espClient;
-PubSubClient mqttClient(espClient);
-const char* BambuLab_Username = "bblp";
-const int BambuLab_Port = 8883;
-std::string Listen_Topic = "/report";
-std::string Public_Topic = "/request";
+#define ASYNC_TCP_SSL_ENABLED true
+#define MQTT_SECURE true
+
+
+//*******************Global Parameters begin********************
+AsyncMqttClient mqttClient;
+TimerHandle_t mqttReconnectTimer;
+TimerHandle_t wifiReconnectTimer;
 int Filament_Now = 0;
 int FilaMent_Next = -1;
 int workstate = 0;
 bool Buffer_Func_Flag = 0;
-bool DEBUG_MODE = 0;
 bool ams_require_received = 0;
 const std::string bambu_resume = R"({"print":{"command":"resume","sequence_id":"1"},"user_id":"1"})";
 const std::string bambu_unload = R"({"print":{"command":"ams_change_filament","curr_temp":220,"sequence_id":"1","tar_temp":220,"target":255},"user_id":"1"})";
 const std::string bambu_load = R"({"print":{"command":"ams_change_filament","curr_temp":220,"sequence_id":"1","tar_temp":220,"target":254},"user_id":"1"})";
 const std::string bambu_done = R"('{"print":{"command":"ams_control","param":"done","sequence_id":"1"},"user_id":"1"})";
-//********************************************************
+//*******************Global Parameters end*********************
 
-const char *ca_cert0 = \
-"-----BEGIN CERTIFICATE-----\n" \
-"MIIC2DCCAcACCQD7SqTgTj31/DANBgkqhkiG9w0BAQsFADBCMQswCQYDVQQGEwJD\n" \
-"TjEiMCAGA1UECgwZQkJMIFRlY2hub2xvZ2llcyBDby4sIEx0ZDEPMA0GA1UEAwwG\n" \
-"QkJMIENBMB4XDTIzMDUxOTA1MjYzMFoXDTMzMDUxNjA1MjYzMFowGjEYMBYGA1UE\n" \
-"AwwPMDFTMDBDMzUxNDAwMDc3MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC\n" \
-"AQEAuWe/nNHQwGFBoK0jsDHPnMRrcC4/Vuy/TXvghiP61moCX7AQKboPyQDbaxSY\n" \
-"Q/u7XsUcY8U06AeuuFo/v1xSGAzO4FekUO8wD3utr8kHCIj7gbEre/ZkG2JJ6yaJ\n" \
-"jF+1PpcEvdZ1V4eIerN7ahv5DUALyxY59BP/Bbhrd3KxJ3UF/FSbd8TtKxjAEqi7\n" \
-"GPg8+uD7RqxFo+j3OMvGXDE4iVhIWkFcRy9WnO5roV1cv0TEVlS53zX9T9D0YKkX\n" \
-"v5U6PTbA2myIVB8ztX+Wi+Gx3UCcPGHewa3yEAuqGj+V8xe5NDl5s31l2TLdvRVj\n" \
-"8LloygZMVs/mk79yzueCyoFrJwIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQCuM+3n\n" \
-"7/A9RnVTfO1qGNElLRf+WHEstFjln6rfEhgvq4RjrdAA51VGI6qusFA9eNIRxQKt\n" \
-"8FSfqeyU0KL+9Q5EH+AmsbeC2qWLEIw2n+9/PGxE0sU3G7Fgl39hobUoKb1kUw/5\n" \
-"cX3yAzVyIx154Qt8PSoG6Ts9YWKPjRSHjR7RKU0lQA6dKv/tPlTU3T9tY0Uyyfsy\n" \
-"A30mBcm359NyE98xZwFW6zNyPEtljQh89YWkMhgWey59KqoVYGGJe+581M1fQ4ex\n" \
-"LNJ4PDwNRi28rNSwVCOemVcWdFk681CeIl9qfRprPb9hsD3DDsa0bOh2dx1+h/zx\n" \
-"BtoNLOi9aIcdMYHW\n" \
-"-----END CERTIFICATE-----\n";
-
-const char *ca_cert1 = \
-"-----BEGIN CERTIFICATE-----\n" \
-"MIIDZTCCAk2gAwIBAgIUV1FckwXElyek1onFnQ9kL7Bk4N8wDQYJKoZIhvcNAQEL\n" \
-"BQAwQjELMAkGA1UEBhMCQ04xIjAgBgNVBAoMGUJCTCBUZWNobm9sb2dpZXMgQ28u\n" \
-"LCBMdGQxDzANBgNVBAMMBkJCTCBDQTAeFw0yMjA0MDQwMzQyMTFaFw0zMjA0MDEw\n" \
-"MzQyMTFaMEIxCzAJBgNVBAYTAkNOMSIwIAYDVQQKDBlCQkwgVGVjaG5vbG9naWVz\n" \
-"IENvLiwgTHRkMQ8wDQYDVQQDDAZCQkwgQ0EwggEiMA0GCSqGSIb3DQEBAQUAA4IB\n" \
-"DwAwggEKAoIBAQDL3pnDdxGOk5Z6vugiT4dpM0ju+3Xatxz09UY7mbj4tkIdby4H\n" \
-"oeEdiYSZjc5LJngJuCHwtEbBJt1BriRdSVrF6M9D2UaBDyamEo0dxwSaVxZiDVWC\n" \
-"eeCPdELpFZdEhSNTaT4O7zgvcnFsfHMa/0vMAkvE7i0qp3mjEzYLfz60axcDoJLk\n" \
-"p7n6xKXI+cJbA4IlToFjpSldPmC+ynOo7YAOsXt7AYKY6Glz0BwUVzSJxU+/+VFy\n" \
-"/QrmYGNwlrQtdREHeRi0SNK32x1+bOndfJP0sojuIrDjKsdCLye5CSZIvqnbowwW\n" \
-"1jRwZgTBR29Zp2nzCoxJYcU9TSQp/4KZuWNVAgMBAAGjUzBRMB0GA1UdDgQWBBSP\n" \
-"NEJo3GdOj8QinsV8SeWr3US+HjAfBgNVHSMEGDAWgBSPNEJo3GdOj8QinsV8SeWr\n" \
-"3US+HjAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQABlBIT5ZeG\n" \
-"fgcK1LOh1CN9sTzxMCLbtTPFF1NGGA13mApu6j1h5YELbSKcUqfXzMnVeAb06Htu\n" \
-"3CoCoe+wj7LONTFO++vBm2/if6Jt/DUw1CAEcNyqeh6ES0NX8LJRVSe0qdTxPJuA\n" \
-"BdOoo96iX89rRPoxeed1cpq5hZwbeka3+CJGV76itWp35Up5rmmUqrlyQOr/Wax6\n" \
-"itosIzG0MfhgUzU51A2P/hSnD3NDMXv+wUY/AvqgIL7u7fbDKnku1GzEKIkfH8hm\n" \
-"Rs6d8SCU89xyrwzQ0PR853irHas3WrHVqab3P+qNwR0YirL0Qk7Xt/q3O1griNg2\n" \
-"Blbjg3obpHo9\n" \
-"-----END CERTIFICATE-----\n";
-
-void system_init();
-void mqtt_callback(char* topic, byte* payload, unsigned int length);
+//*******************private functions begin*******************
+void systeminit();
+void connectToWifi();
+void connectToMqtt();
+void WiFiEvent(WiFiEvent_t event);
+void printSeparationLine();
+void onMqttConnect(bool sessionPresent);
+void onMqttDisconnect(AsyncMqttClientDisconnectReason reason);
+void onMqttSubscribe(const uint16_t& packetId, const uint8_t& qos);
+void onMqttUnsubscribe(const uint16_t& packetId);
+void onMqttMessage(char* topic, char* payload, const AsyncMqttClientMessageProperties& properties,
+                   const size_t& len, const size_t& index, const size_t& total);
+void onMqttPublish(const uint16_t& packetId);
 void filament_buffer_func();
 bool checkPauseFlag(JsonDocument& doc);
 bool checkNextFilament(JsonDocument& doc,int& nextfilament);
 bool checkHWSwitchState(JsonDocument& doc,bool& state);
 bool checkAMSStatus(JsonDocument& doc,bool& status);
+//*******************private functions end*********************
 
-void setup() 
+void setup()
 {
-  Serial.begin(115200);
-  Serial.println("system init\n");
-  system_init();
-  Serial.println("system init complete\n");
+  systeminit();
 }
 
-void loop() 
+void loop()
 {
   filament_buffer_func();
-  //Serial.println("test");
 }
 
-void system_init()
+void systeminit()
 {
+  // init string
+  Listen_Topic = std::string("device/") + BambuLab_Serial + Listen_Topic;
+  Public_Topic = std::string("device/") + BambuLab_Serial + Public_Topic;
+
+  // init serial and print version data
+  Serial.begin(115200);
+
+  while (!Serial && millis() < 5000);
+
+  delay(500);
+
+  Serial.print("\nStarting mozhu-AMS on ");
+  Serial.println(ARDUINO_BOARD);
+  Serial.println(ASYNC_MQTT_ESP32_VERSION);
+
+  // init timer
+  mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0,
+                                    reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
+  wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0,
+                                    reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
+
+  //init callback
+  WiFi.onEvent(WiFiEvent);
+
+  mqttClient.setCredentials(username,password);
+  mqttClient.onConnect(onMqttConnect);
+  mqttClient.onDisconnect(onMqttDisconnect);
+  mqttClient.onSubscribe(onMqttSubscribe);
+  mqttClient.onUnsubscribe(onMqttUnsubscribe);
+  mqttClient.onMessage(onMqttMessage);
+  mqttClient.onPublish(onMqttPublish);
+
+  //init server
+  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+
+  mqttClient.setSecure(MQTT_SECURE);
+
+  if (MQTT_SECURE)
+  {
+    //mqttClient.addServerFingerprint((const uint8_t[])MQTT_SERVER_FINGERPRINT);
+    mqttClient.addServerFingerprint((const uint8_t *)MQTT_SERVER_FINGERPRINT);
+  }
+
+  connectToWifi();
+
   //init GPIO
   for(int i = 0; i < 4; i++)
   {
@@ -125,70 +126,164 @@ void system_init()
   for(int i = 0; i < Filament_Num; i++)
   {
     //make sure the filament is installed correctly
+    Serial.println("Filament No.%d input",i);
     digitalWrite(Motor_Forward[i], 1);
     while(!digitalRead(Filament_detection[i])) {};
+    Serial.println("Filament No.%d output",i);
     digitalWrite(Motor_Forward[i],0);
     digitalWrite(Motor_Bacword[i],1);
     while(digitalRead(Filament_detection[i])) {};
     digitalWrite(Motor_Bacword[i],0);
+    Serial.println("Filament No.%d in posion",i);
   }
   Serial.println("filament init complete\n");
 
-  //complete string
-  Listen_Topic = std::string("device/") + BambuLab_Serial + Listen_Topic;
-  Public_Topic = std::string("device/") + BambuLab_Serial + Public_Topic;
-  
-  //connect wifi
-  WiFi.begin(WIFI_SSID,WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(1000);
-  }
-  Serial.println("WIFI connected\n");
-
-  //set mqtt client and connect mqtt server
-  espClient.setCACert(ca_cert0);
-  //espClient.setInsecure();
-  const char* ClientID = "mzams";
-  mqttClient.setServer(BambuLab_IP,BambuLab_Port);
-  mqttClient.setCallback(mqtt_callback);
-  while (!mqttClient.connected()) 
-  {
-    Serial.println("\nConnecting to MQTT server...");
-      
-    if (mqttClient.connect(ClientID,BambuLab_Username,BambuLab_Password)) 
-    {
-        Serial.println("Connected to MQTT server");
-    } 
-    else 
-    {
-        Serial.print("Failed with state ");
-        Serial.print(mqttClient.state());
-        delay(1000);
-    }
-  }
-  mqttClient.subscribe(Listen_Topic.c_str());
 }
 
-void filament_buffer_func()
+void connectToWifi()
 {
-  if(workstate == 0)
+  Serial.println("Connecting to Wi-Fi...");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+}
+
+void connectToMqtt()
+{
+  Serial.println("Connecting to MQTT...");
+  mqttClient.connect();
+}
+
+void WiFiEvent(WiFiEvent_t event)
+{
+  switch (event)
   {
-    if(digitalRead(Buffer_Detection[1]))
-    {
-      Buffer_Func_Flag = 1;
-      digitalWrite(Motor_Forward[Filament_Now], 1);
-      while(!digitalRead(Buffer_Detection[0])) {};
-      digitalWrite(Motor_Forward[Filament_Now], 0);
-      Buffer_Func_Flag = 0;
-    }
+#if USING_CORE_ESP32_CORE_V200_PLUS
+
+    case ARDUINO_EVENT_WIFI_READY:
+      Serial.println("WiFi ready");
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_START:
+      Serial.println("WiFi STA starting");
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+      Serial.println("WiFi STA connected");
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP6:
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      Serial.println("WiFi connected");
+      Serial.print("IP address: ");
+      Serial.println(WiFi.localIP());
+      connectToMqtt();
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_LOST_IP:
+      Serial.println("WiFi lost IP");
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      Serial.println("WiFi lost connection");
+      xTimerStop(mqttReconnectTimer, 0); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
+      xTimerStart(wifiReconnectTimer, 0);
+      break;
+#else
+
+    case SYSTEM_EVENT_STA_GOT_IP:
+      Serial.println("WiFi connected");
+      Serial.println("IP address: ");
+      Serial.println(WiFi.localIP());
+      connectToMqtt();
+      break;
+
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+      Serial.println("WiFi lost connection");
+      xTimerStop(mqttReconnectTimer, 0); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
+      xTimerStart(wifiReconnectTimer, 0);
+      break;
+#endif
+
+    default:
+      break;
   }
 }
 
-void mqtt_callback(char* topic, byte* payload, unsigned int length)
+void printSeparationLine()
 {
+  Serial.println("************************************************");
+}
+
+void onMqttConnect(bool sessionPresent)
+{
+  Serial.print("Connected to MQTT broker: ");
+  Serial.print(MQTT_HOST);
+  Serial.print(", port: ");
+  Serial.println(MQTT_PORT);
+  Serial.print("PubTopic: ");
+  Serial.println(Listen_Topic.c_str());
+
+  printSeparationLine();
+  Serial.print("Session present: ");
+  Serial.println(sessionPresent);
+
+  uint16_t packetIdSub = mqttClient.subscribe(Listen_Topic.c_str(), 0);
+  Serial.print("Subscribing at QoS 0, packetId: ");
+  Serial.println(packetIdSub);
+
+  printSeparationLine();
+}
+
+void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
+{
+  (void) reason;
+
+  Serial.println("Disconnected from MQTT.");
+
+  if (WiFi.isConnected())
+  {
+    xTimerStart(mqttReconnectTimer, 0);
+  }
+}
+
+void onMqttSubscribe(const uint16_t& packetId, const uint8_t& qos)
+{
+  Serial.println("Subscribe acknowledged.");
+  Serial.print("  packetId: ");
+  Serial.println(packetId);
+  Serial.print("  qos: ");
+  Serial.println(qos);
+}
+
+void onMqttUnsubscribe(const uint16_t& packetId)
+{
+  Serial.println("Unsubscribe acknowledged.");
+  Serial.print("  packetId: ");
+  Serial.println(packetId);
+}
+
+void onMqttMessage(char* topic, char* payload, const AsyncMqttClientMessageProperties& properties,
+                   const size_t& len, const size_t& index, const size_t& total)
+{
+  (void) payload;
+
+  Serial.println("Publish received.");
+  Serial.print("  topic: ");
+  Serial.println(topic);
+  Serial.print("  qos: ");
+  Serial.println(properties.qos);
+  Serial.print("  dup: ");
+  Serial.println(properties.dup);
+  Serial.print("  retain: ");
+  Serial.println(properties.retain);
+  Serial.print("  len: ");
+  Serial.println(len);
+  Serial.print("  index: ");
+  Serial.println(index);
+  Serial.print("  total: ");
+  Serial.println(total);
+
   JsonDocument jsonRecv;
-  deserializeJson(jsonRecv,(char*)payload,length);
+  deserializeJson(jsonRecv,(char*)payload,len);
 
   if(checkNextFilament(jsonRecv,FilaMent_Next))
   {
@@ -201,7 +296,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length)
     if (checkPauseFlag(jsonRecv))
     {
       Serial.println("printer pause command received\n");
-      if(checkNextFilament(jsonRecv,FilaMent_Next) || ams_require_received)
+      if(ams_require_received)
       {
         ams_require_received = 0;
         Serial.println("filament change start\n");
@@ -259,7 +354,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length)
         Serial.println("filament load complete\n");
         mqttClient.publish(Public_Topic.c_str(),bambu_load.c_str(),bambu_load.size());
         delay(10000);
-        Serial.println("filament load command sent\n");
+        Serial.println("filament load command send complete\n");
         mqttClient.publish(Public_Topic.c_str(),bambu_done.c_str(),bambu_done.size());
         workstate += 1;
       }
@@ -279,7 +374,33 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length)
       }
     }
   }
+
 }
+
+void onMqttPublish(const uint16_t& packetId)
+{
+  Serial.println("Publish acknowledged");
+  Serial.print("  packetId: ");
+  Serial.println(packetId);
+}
+
+void filament_buffer_func()
+{
+  if(workstate == 0)
+  {
+    if(digitalRead(Buffer_Detection[1]))
+    {
+      Buffer_Func_Flag = 1;
+      digitalWrite(Motor_Forward[Filament_Now], 1);
+    }
+    if(digitalRead(Buffer_Detection[0]) == 1 && Buffer_Func_Flag == 1)
+    {
+      digitalWrite(Motor_Forward[Filament_Now], 0);
+      Buffer_Func_Flag = 0;
+    }
+  }
+}
+
 
 bool checkPauseFlag(JsonDocument& doc)
 {
