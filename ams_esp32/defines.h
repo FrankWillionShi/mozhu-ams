@@ -28,4 +28,14 @@ std::string Public_Topic = "/request";
 #define MQTT_PORT       8883
 // ****************default settings end*********************
 
+// ****************debug settings begin*********************
+#define JUMP_FILAMENT_INIT 1
+#define SHOW_RECEIVE_LOG 0
+#define SHOW_RECEIVE_DETAIL 0
+#define SHOW_MC_PERCENT_RESAULT 0
+#define SHOW_FILAMENT_NUM 1
+#define SHOW_WORKSTATE 0
+#define SHOW_DELAY_FLAG 0
+// ****************debug settings end***********************
+
 #endif    //MOZHU_AMS_SETTINGS

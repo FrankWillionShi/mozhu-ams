@@ -37,48 +37,7 @@ const std::string bambu_load = R"({"print":{"command":"ams_change_filament","cur
 const std::string bambu_done = R"('{"print":{"command":"ams_control","param":"done","sequence_id":"1"},"user_id":"1"})";
 //********************************************************
 
-const char *ca_cert0 = \
-"-----BEGIN CERTIFICATE-----\n" \
-"MIIC2DCCAcACCQD7SqTgTj31/DANBgkqhkiG9w0BAQsFADBCMQswCQYDVQQGEwJD\n" \
-"TjEiMCAGA1UECgwZQkJMIFRlY2hub2xvZ2llcyBDby4sIEx0ZDEPMA0GA1UEAwwG\n" \
-"QkJMIENBMB4XDTIzMDUxOTA1MjYzMFoXDTMzMDUxNjA1MjYzMFowGjEYMBYGA1UE\n" \
-"AwwPMDFTMDBDMzUxNDAwMDc3MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC\n" \
-"AQEAuWe/nNHQwGFBoK0jsDHPnMRrcC4/Vuy/TXvghiP61moCX7AQKboPyQDbaxSY\n" \
-"Q/u7XsUcY8U06AeuuFo/v1xSGAzO4FekUO8wD3utr8kHCIj7gbEre/ZkG2JJ6yaJ\n" \
-"jF+1PpcEvdZ1V4eIerN7ahv5DUALyxY59BP/Bbhrd3KxJ3UF/FSbd8TtKxjAEqi7\n" \
-"GPg8+uD7RqxFo+j3OMvGXDE4iVhIWkFcRy9WnO5roV1cv0TEVlS53zX9T9D0YKkX\n" \
-"v5U6PTbA2myIVB8ztX+Wi+Gx3UCcPGHewa3yEAuqGj+V8xe5NDl5s31l2TLdvRVj\n" \
-"8LloygZMVs/mk79yzueCyoFrJwIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQCuM+3n\n" \
-"7/A9RnVTfO1qGNElLRf+WHEstFjln6rfEhgvq4RjrdAA51VGI6qusFA9eNIRxQKt\n" \
-"8FSfqeyU0KL+9Q5EH+AmsbeC2qWLEIw2n+9/PGxE0sU3G7Fgl39hobUoKb1kUw/5\n" \
-"cX3yAzVyIx154Qt8PSoG6Ts9YWKPjRSHjR7RKU0lQA6dKv/tPlTU3T9tY0Uyyfsy\n" \
-"A30mBcm359NyE98xZwFW6zNyPEtljQh89YWkMhgWey59KqoVYGGJe+581M1fQ4ex\n" \
-"LNJ4PDwNRi28rNSwVCOemVcWdFk681CeIl9qfRprPb9hsD3DDsa0bOh2dx1+h/zx\n" \
-"BtoNLOi9aIcdMYHW\n" \
-"-----END CERTIFICATE-----\n";
-
-const char *ca_cert1 = \
-"-----BEGIN CERTIFICATE-----\n" \
-"MIIDZTCCAk2gAwIBAgIUV1FckwXElyek1onFnQ9kL7Bk4N8wDQYJKoZIhvcNAQEL\n" \
-"BQAwQjELMAkGA1UEBhMCQ04xIjAgBgNVBAoMGUJCTCBUZWNobm9sb2dpZXMgQ28u\n" \
-"LCBMdGQxDzANBgNVBAMMBkJCTCBDQTAeFw0yMjA0MDQwMzQyMTFaFw0zMjA0MDEw\n" \
-"MzQyMTFaMEIxCzAJBgNVBAYTAkNOMSIwIAYDVQQKDBlCQkwgVGVjaG5vbG9naWVz\n" \
-"IENvLiwgTHRkMQ8wDQYDVQQDDAZCQkwgQ0EwggEiMA0GCSqGSIb3DQEBAQUAA4IB\n" \
-"DwAwggEKAoIBAQDL3pnDdxGOk5Z6vugiT4dpM0ju+3Xatxz09UY7mbj4tkIdby4H\n" \
-"oeEdiYSZjc5LJngJuCHwtEbBJt1BriRdSVrF6M9D2UaBDyamEo0dxwSaVxZiDVWC\n" \
-"eeCPdELpFZdEhSNTaT4O7zgvcnFsfHMa/0vMAkvE7i0qp3mjEzYLfz60axcDoJLk\n" \
-"p7n6xKXI+cJbA4IlToFjpSldPmC+ynOo7YAOsXt7AYKY6Glz0BwUVzSJxU+/+VFy\n" \
-"/QrmYGNwlrQtdREHeRi0SNK32x1+bOndfJP0sojuIrDjKsdCLye5CSZIvqnbowwW\n" \
-"1jRwZgTBR29Zp2nzCoxJYcU9TSQp/4KZuWNVAgMBAAGjUzBRMB0GA1UdDgQWBBSP\n" \
-"NEJo3GdOj8QinsV8SeWr3US+HjAfBgNVHSMEGDAWgBSPNEJo3GdOj8QinsV8SeWr\n" \
-"3US+HjAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQABlBIT5ZeG\n" \
-"fgcK1LOh1CN9sTzxMCLbtTPFF1NGGA13mApu6j1h5YELbSKcUqfXzMnVeAb06Htu\n" \
-"3CoCoe+wj7LONTFO++vBm2/if6Jt/DUw1CAEcNyqeh6ES0NX8LJRVSe0qdTxPJuA\n" \
-"BdOoo96iX89rRPoxeed1cpq5hZwbeka3+CJGV76itWp35Up5rmmUqrlyQOr/Wax6\n" \
-"itosIzG0MfhgUzU51A2P/hSnD3NDMXv+wUY/AvqgIL7u7fbDKnku1GzEKIkfH8hm\n" \
-"Rs6d8SCU89xyrwzQ0PR853irHas3WrHVqab3P+qNwR0YirL0Qk7Xt/q3O1griNg2\n" \
-"Blbjg3obpHo9\n" \
-"-----END CERTIFICATE-----\n";
+const char* fingerprint = {0x2E, 0xA1, 0xA1, 0x8B, 0x61, 0x42, 0xDB, 0x96, 0x8F, 0x41, 0x4D, 0x4B, 0x7D, 0xAF, 0x9A, 0x64, 0xD3, 0x3A, 0x42, 0x07};
 
 void system_init();
 void mqtt_callback(char* topic, byte* payload, unsigned int length);
@@ -117,6 +76,7 @@ void system_init()
   pinMode(Buffer_Detection[1],INPUT_PULLDOWN);
   Serial.println("GPIO init complete\n");
 
+/*
   //init filament
   if(Filament_Num > 4)
     Filament_Num = 4;
@@ -133,6 +93,7 @@ void system_init()
     digitalWrite(Motor_Bacword[i],0);
   }
   Serial.println("filament init complete\n");
+  */
 
   //complete string
   Listen_Topic = std::string("device/") + BambuLab_Serial + Listen_Topic;
@@ -147,7 +108,7 @@ void system_init()
   Serial.println("WIFI connected\n");
 
   //set mqtt client and connect mqtt server
-  espClient.setCACert(ca_cert0);
+  espClient.setFingerprint(fingerprint);
   //espClient.setInsecure();
   const char* ClientID = "mzams";
   mqttClient.setServer(BambuLab_IP,BambuLab_Port);

@@ -1,16 +1,15 @@
+#define ASYNC_TCP_SSL_ENABLED 1
+#define MQTT_SECURE 1
 #include "defines.h"
 #include <WiFi.h>
-#include <AsyncMQTT_ESP32.h>
 #include <ArduinoJson.h>
-
+#include <AsyncMQTT_ESP32.h>
 extern "C"
 {
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
 }
 
-#define ASYNC_TCP_SSL_ENABLED true
-#define MQTT_SECURE true
 
 
 //*******************Global Parameters begin********************
@@ -19,13 +18,15 @@ TimerHandle_t mqttReconnectTimer;
 TimerHandle_t wifiReconnectTimer;
 int Filament_Now = 0;
 int FilaMent_Next = -1;
-int workstate = 0;
+uint8_t workstate = 0;
 bool Buffer_Func_Flag = 0;
 bool ams_require_received = 0;
 const std::string bambu_resume = R"({"print":{"command":"resume","sequence_id":"1"},"user_id":"1"})";
 const std::string bambu_unload = R"({"print":{"command":"ams_change_filament","curr_temp":220,"sequence_id":"1","tar_temp":220,"target":255},"user_id":"1"})";
 const std::string bambu_load = R"({"print":{"command":"ams_change_filament","curr_temp":220,"sequence_id":"1","tar_temp":220,"target":254},"user_id":"1"})";
-const std::string bambu_done = R"('{"print":{"command":"ams_control","param":"done","sequence_id":"1"},"user_id":"1"})";
+const std::string bambu_done = R"({"print":{"command":"ams_control","param":"done","sequence_id":"1"},"user_id":"1"})";
+bool mqttDataReadyFlag = 0;
+JsonDocument jsonRecv;
 //*******************Global Parameters end*********************
 
 //*******************private functions begin*******************
@@ -46,6 +47,7 @@ bool checkPauseFlag(JsonDocument& doc);
 bool checkNextFilament(JsonDocument& doc,int& nextfilament);
 bool checkHWSwitchState(JsonDocument& doc,bool& state);
 bool checkAMSStatus(JsonDocument& doc,bool& status);
+void coreThread();
 //*******************private functions end*********************
 
 void setup()
@@ -55,7 +57,7 @@ void setup()
 
 void loop()
 {
-  filament_buffer_func();
+  coreThread();
 }
 
 void systeminit()
@@ -119,24 +121,33 @@ void systeminit()
   Serial.println("GPIO init complete\n");
 
   //init filament
-  if(Filament_Num > 4)
-    Filament_Num = 4;
-  if(Filament_Num < 1)
-    Filament_Num = 1;
-  for(int i = 0; i < Filament_Num; i++)
+  if(!JUMP_FILAMENT_INIT)
   {
-    //make sure the filament is installed correctly
-    Serial.println("Filament No.%d input",i);
-    digitalWrite(Motor_Forward[i], 1);
-    while(!digitalRead(Filament_detection[i])) {};
-    Serial.println("Filament No.%d output",i);
-    digitalWrite(Motor_Forward[i],0);
-    digitalWrite(Motor_Bacword[i],1);
-    while(digitalRead(Filament_detection[i])) {};
-    digitalWrite(Motor_Bacword[i],0);
-    Serial.println("Filament No.%d in posion",i);
+    if(Filament_Num > 4)
+      Filament_Num = 4;
+    if(Filament_Num < 1)
+      Filament_Num = 1;
+    for(int i = 0; i < Filament_Num; i++)
+    {
+      //make sure the filament is installed correctly
+      Serial.print("Filament No.");
+      Serial.print(i);
+      Serial.println("input");
+      digitalWrite(Motor_Forward[i], 1);
+      while(!digitalRead(Filament_detection[i])) {};
+      Serial.print("Filament No.");
+      Serial.print(i);
+      Serial.println("output");
+      digitalWrite(Motor_Forward[i],0);
+      digitalWrite(Motor_Bacword[i],1);
+      while(digitalRead(Filament_detection[i])) {};
+      digitalWrite(Motor_Bacword[i],0);
+      Serial.print("Filament No.");
+      Serial.print(i);
+      Serial.println("complete");
+    }
+    Serial.println("filament init complete\n");
   }
-  Serial.println("filament init complete\n");
 
 }
 
@@ -264,117 +275,35 @@ void onMqttUnsubscribe(const uint16_t& packetId)
 void onMqttMessage(char* topic, char* payload, const AsyncMqttClientMessageProperties& properties,
                    const size_t& len, const size_t& index, const size_t& total)
 {
-  (void) payload;
-
-  Serial.println("Publish received.");
-  Serial.print("  topic: ");
-  Serial.println(topic);
-  Serial.print("  qos: ");
-  Serial.println(properties.qos);
-  Serial.print("  dup: ");
-  Serial.println(properties.dup);
-  Serial.print("  retain: ");
-  Serial.println(properties.retain);
-  Serial.print("  len: ");
-  Serial.println(len);
-  Serial.print("  index: ");
-  Serial.println(index);
-  Serial.print("  total: ");
-  Serial.println(total);
-
-  JsonDocument jsonRecv;
-  deserializeJson(jsonRecv,(char*)payload,len);
-
-  if(checkNextFilament(jsonRecv,FilaMent_Next))
+  if(SHOW_RECEIVE_LOG)
   {
-    ams_require_received = 1;
-    Serial.println("filament change require received\n");
-  }
-  if(workstate == 0)
-  {
-    std::string gcode_state = jsonRecv["print"]["gcode_state"];
-    if (checkPauseFlag(jsonRecv))
-    {
-      Serial.println("printer pause command received\n");
-      if(ams_require_received)
-      {
-        ams_require_received = 0;
-        Serial.println("filament change start\n");
-        // start change filament
-        if(FilaMent_Next == Filament_Now)
-        {
-          // next filament is the same with the current filament,there is no need to change filament
-          Serial.println("next filament is the same with the current filament,there is no need to change filament\n");
-          mqttClient.publish(Public_Topic.c_str(),bambu_resume.c_str(),bambu_resume.size());
-          return;
-        }
-        //make sure the motor is not running
-        if(Buffer_Func_Flag)
-        {
-          digitalWrite(Motor_Forward[Filament_Now],0);
-          Buffer_Func_Flag = 0;
-        }
-        // unload the filament
-        Serial.println("start filament unload\n");
-        mqttClient.publish(Public_Topic.c_str(),bambu_unload.c_str(),bambu_unload.size());
-        workstate += 1;
-      }
-    }
-  }
-  else if(workstate == 1)
-  {
-    bool switch_status = 1;
-    if(checkHWSwitchState(jsonRecv,switch_status))
-    {
-      if(0 == switch_status)
-      {
-        Serial.println("filament unload start\n");
-        digitalWrite(Motor_Bacword[Filament_Now],1);
-        // after the filament is out of printer
-        while(digitalRead(Filament_detection[Filament_Now]) == 1) {};// wait until filament is back into AMS
-        Serial.println("filament unload complete\n");
-        digitalWrite(Motor_Bacword[Filament_Now],0);
-        Filament_Now = -1;
-        // send new filament to printer
-        Serial.println("filament load start\n");
-        digitalWrite(Motor_Forward[FilaMent_Next],1);
-        workstate += 1;
-      }
-    }
-  }
-  else if(workstate == 2)
-  {
-    bool switch_status = 0;
-    if(checkHWSwitchState(jsonRecv,switch_status))
-    {
-      if(1 == switch_status)
-      {
-        // new filament is in posion and ready to load
-        digitalWrite(Motor_Forward[FilaMent_Next],0);
-        Serial.println("filament load complete\n");
-        mqttClient.publish(Public_Topic.c_str(),bambu_load.c_str(),bambu_load.size());
-        delay(10000);
-        Serial.println("filament load command send complete\n");
-        mqttClient.publish(Public_Topic.c_str(),bambu_done.c_str(),bambu_done.size());
-        workstate += 1;
-      }
-    }
-  }
-  else if(workstate == 3)
-  {
-    bool AMSStatus = 0;
-    if(checkAMSStatus(jsonRecv,AMSStatus))
-    {
-      if(AMSStatus)
-      {
-        // filament wash complete, continue print
-        Serial.println("AMS function complete\n");
-        mqttClient.publish(Public_Topic.c_str(),bambu_resume.c_str(),bambu_resume.size());
-        workstate = 0;
-      }
-    }
+    Serial.println("Publish received.");
+    Serial.print("  topic: ");
+    Serial.println(topic);
+    Serial.print("  qos: ");
+    Serial.println(properties.qos);
+    Serial.print("  dup: ");
+    Serial.println(properties.dup);
+    Serial.print("  retain: ");
+    Serial.println(properties.retain);
+    Serial.print("  len: ");
+    Serial.println(len);
+    Serial.print("  index: ");
+    Serial.println(index);
+    Serial.print("  total: ");
+    Serial.println(total);
   }
 
+  if(SHOW_RECEIVE_DETAIL)
+  {
+    Serial.println(payload);
+  }
+  
+  if(!mqttDataReadyFlag)
+  {
+    deserializeJson(jsonRecv,(char*)payload,len);
+  }
+  mqttDataReadyFlag = 1;
 }
 
 void onMqttPublish(const uint16_t& packetId)
@@ -418,25 +347,34 @@ bool checkPauseFlag(JsonDocument& doc)
 bool checkNextFilament(JsonDocument& doc,int& nextfilament)
 {
   JsonObject print = doc["print"];
-  int print_mc_percent = print["mc_percent"]; // 101
-  int print_mc_remaining_time = print["mc_remaining_time"]; // 1
-  if(print_mc_remaining_time != 101)
+
+  int print_mc_percent = print["mc_percent"]; // 101 + next filament
+  if(print_mc_percent > 100)
+  {
+    nextfilament = print_mc_percent - 101;
+    return 1;
+  }
+  else
+  {
     return 0;
-  nextfilament = print_mc_remaining_time;
-  return 1;
+  }
 }
 
 bool checkHWSwitchState(JsonDocument& doc,bool& state)
 {
   JsonObject print = doc["print"];
-  const char* state_exist = print["hw_switch_state"];
-  if(state_exist == nullptr)
-  return 0;
-  int print_hw_switch_state = print["hw_switch_state"]; // 0
-  if(print_hw_switch_state == 0)
-    state = 0;
+  int print_hw_switch_state = print["hw_switch_state"] | 2; // 0
+  if(print_hw_switch_state == 2)
+  {
+    return 0;
+  }
   else
-    state = 1;
+  {
+    if(print_hw_switch_state == 0)
+      state = 0;
+    else
+      state = 1;
+  }
   return 1;
 }
 
@@ -453,4 +391,131 @@ bool checkAMSStatus(JsonDocument& doc,bool& status)
   else
     status = 0;
   return 1;
+}
+
+bool checkFilamentCutStatus(JsonDocument& doc)
+{
+  JsonObject print = doc["print"];
+  long print_print_error = print["print_error"];
+  if(print_print_error == 134201347)
+    return 1;
+  else
+    return 0;
+}
+
+void coreThread()
+{  
+
+  
+  // filament buffer function
+  filament_buffer_func();
+  static int onceflag = 0;
+
+  if(workstate == 1)
+  {
+    static uint8_t delayflag = 0;
+    if(SHOW_DELAY_FLAG)
+      Serial.printf("delay flag is %d\n",(int)delayflag);
+    if(!delayflag)
+    {
+      delay(15000);
+      delayflag = 1;
+    }
+    else
+    {
+      if(digitalRead(Filament_detection[Filament_Now]) == 1)
+      {
+        if(!onceflag)
+        {
+          Serial.println("filament unloading\n");
+          onceflag = 1;
+        }
+        digitalWrite(Motor_Bacword[Filament_Now],1);
+      }
+      else
+      {
+        // after the filament is out of printer
+        delayflag = 0;
+        onceflag = 0;
+        Serial.println("filament unload complete\n");
+        digitalWrite(Motor_Bacword[Filament_Now],0);
+        Filament_Now = -1;
+        // send new filament to printer
+        Serial.println("filament load start\n");
+        mqttClient.publish(Public_Topic.c_str(),0,0,bambu_load.c_str(),bambu_load.size());
+        digitalWrite(Motor_Forward[FilaMent_Next],1);
+        workstate += 1; 
+      }
+    }
+  }
+  else if(workstate == 2)
+  {
+
+    if(digitalRead(Buffer_Detection[0]) == 1)
+    {
+      // new filament is in posion and ready to load
+      digitalWrite(Motor_Forward[FilaMent_Next],0);
+      Filament_Now = FilaMent_Next;
+      FilaMent_Next = -1;
+      Serial.println("filament load complete\n");
+      delay(10000);
+      Serial.println("filament load command send complete\n");
+      mqttClient.publish(Public_Topic.c_str(),0,0,bambu_done.c_str(),bambu_done.size());
+      delay(15000);
+      Serial.println("resume command send complete\n");
+      mqttClient.publish(Public_Topic.c_str(),0,0,bambu_resume.c_str(),bambu_resume.size());
+      workstate = 0;
+    }
+  }
+
+  //deal with mqtt data
+  if(!mqttDataReadyFlag)
+    return;
+  if(checkNextFilament(jsonRecv,FilaMent_Next))
+  {
+    ams_require_received = 1;
+    Serial.println("filament change require received\n");
+  }
+  else
+    if(SHOW_FILAMENT_NUM)
+      Serial.println("Check next filament failed, no val detected or val incorrect");
+  if(SHOW_FILAMENT_NUM)
+    Serial.printf("now filament is %d , next filament is %d\n",Filament_Now,FilaMent_Next);
+  if(SHOW_WORKSTATE)
+    Serial.printf("workstate is %d\n",workstate);
+  //Serial.printf("receive a mqtt message\n");
+  if(workstate == 0)
+  {
+    std::string gcode_state = jsonRecv["print"]["gcode_state"];
+    if (checkPauseFlag(jsonRecv))
+    {
+      Serial.println("printer pause command received\n");
+      if(ams_require_received)
+      {
+        ams_require_received = 0;
+        Serial.println("filament change start\n");
+        // start change filament
+        if(FilaMent_Next == Filament_Now)
+        {
+          // next filament is the same with the current filament,there is no need to change filament
+          Serial.println("next filament is the same with the current filament,there is no need to change filament\n");
+          Serial.printf("now filament is %d , next filament is %d\n",Filament_Now,FilaMent_Next);
+          mqttClient.publish(Public_Topic.c_str(),0,0,bambu_resume.c_str(),bambu_resume.size());
+          mqttDataReadyFlag = 0;
+          return;
+        }
+        //make sure the motor is not running
+        if(Buffer_Func_Flag)
+        {
+          digitalWrite(Motor_Forward[Filament_Now],0);
+          Buffer_Func_Flag = 0;
+        }
+        // unload the filament
+        Serial.println("start filament unload\n");
+        mqttClient.publish(Public_Topic.c_str(),0,0,bambu_unload.c_str(),bambu_unload.size());
+        workstate += 1;
+      }
+    }
+  }
+  mqttDataReadyFlag = 0;
 }
