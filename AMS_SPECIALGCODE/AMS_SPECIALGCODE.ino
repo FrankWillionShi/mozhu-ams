@@ -385,8 +385,16 @@ void coreThread()
         workstate = 1;
         Buffer_Func_Flag = 0;
       }
-      // enable motor to unload filament
-      digitalWrite(Motor_Bacword[Filament_Now],1);
+      if(Filament_Now == FilaMent_Next)
+      {
+        Serial.println("next filament is the same with the current filament,there is no need to change filament\n");
+        mqttClient.publish(Public_Topic.c_str(),0,0,bambu_resume.c_str(),bambu_resume.size());
+      }
+      else
+      {
+        // enable motor to unload filament
+        digitalWrite(Motor_Bacword[Filament_Now],1);
+      }
       mqttDataReadyFlag = 0;
     }
   }
@@ -416,6 +424,7 @@ void coreThread()
       // filament change is complete, send command to printer and updata filament data
       Filament_Now = FilaMent_Next;
       FilaMent_Next = -1;
+      mqttClient.publish(Public_Topic.c_str(),0,0,bambu_resume.c_str(),bambu_resume.size());
     }
   }
 }
