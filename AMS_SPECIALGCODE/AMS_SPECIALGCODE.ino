@@ -369,7 +369,7 @@ void coreThread()
   // filament buffer function
   filament_buffer_func();
 
-  checkNextFilament(jsonRecv,FilaMent_Next)
+  checkNextFilament(jsonRecv,FilaMent_Next);
 
   // AMS FUNCTION
   //if no MQTT data receive, skip this function
