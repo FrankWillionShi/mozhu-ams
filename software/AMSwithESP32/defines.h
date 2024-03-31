@@ -15,7 +15,7 @@ int Filament_Num = 2;
 // *****************User Settings end***********************
 
 
-// ****************devoifault settings end*********************
+// ****************default settings begin*********************
 // Warning: do not edit these settings if not necessary
 const uint8_t MQTT_SERVER_FINGERPRINT[] = {0x2E, 0xA1, 0xA1, 0x8B, 0x61, 0x42, 0xDB, 0x96, 0x8F, 0x41, 0x4D, 0x4B, 0x7D, 0xAF, 0x9A, 0x64, 0xD3, 0x3A, 0x42, 0x07};
 const char* username = "bblp";
@@ -32,9 +32,15 @@ std::string Public_Topic = "/request";
 #define JUMP_FILAMENT_INIT 1
 #define SHOW_RECEIVE_LOG 0
 #define SHOW_RECEIVE_DETAIL 0
-#define SHOW_MC_PERCENT_RESAULT 0
+#define SHOW_AMS_REQUIRE 1
+#define SHOW_NOAMS_REQUIRE 0
+#define SHOW_MQTT_FLAG 0
+#define SHOW_INPUT_BUFFER_DETAIL 1
+#define SHOW_OUTPUT_BUFFER_DETAIL 1
 #define SHOW_FILAMENT_NUM 1
 #define SHOW_WORKSTATE 0
+#define SHOW_MQTT_DECODE_DETAIL 0
+#define SHOW_FILAMENT_CHECK_DETAIL 0
 // ****************debug settings end***********************
 
 #endif    //MOZHU_AMS_SETTINGS
